@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#1e1e2e">
   <title>Planner</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzE4MTgyNSIvPjxyZWN0IHg9IjYiIHk9IjYiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgcng9IjUiIGZpbGw9IiNjYmE2ZjciLz48cG9seWxpbmUgcG9pbnRzPSI5LjUsMTYgMTMuNSwyMCAyMi41LDExIiBmaWxsPSJub25lIiBzdHJva2U9IiMxMTExMWIiIHN0cm9rZS13aWR0aD0iMi44IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:opsz,wght@14..32,400..700&display=swap" rel="stylesheet">
@@ -15,9 +16,11 @@
   <main class="app" role="main">
     <header>
       <h1>Planner</h1>
-      <span id="sync-indicator" class="sync-dot" role="status" aria-label=""></span>
-      <span class="task-count" id="task-count" role="status" aria-live="polite"></span>
-      <span id="header-actions"></span>
+      <div class="header-end">
+        <span id="sync-indicator" class="sync-dot" role="status" aria-label=""></span>
+        <span class="task-count" id="task-count" role="status" aria-live="polite"></span>
+        <span id="header-actions"></span>
+      </div>
     </header>
 
     <nav class="view-nav" id="view-nav" role="tablist" aria-label="Views"></nav>
