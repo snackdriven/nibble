@@ -15,6 +15,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 const AUTH_KEY = 'tc-auth';
 const LOCAL_ONLY_KEY = 'tc-local-only';
+const PKCE_VERIFIER_KEY = 'tc-pkce-verifier';
 const SUPABASE_URL = 'https://pynmkrcbkcfxifnztnrn.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_8VEm7zR0vqKjOZRwH6jimw_qIWt-RPp';
 
@@ -1993,8 +1994,56 @@ function extractTokensFromHash() {
   const refreshToken = params.get('refresh_token');
   const expiresIn = parseInt(params.get('expires_in') || '3600', 10);
   if (!accessToken || !refreshToken) return null;
-  history.replaceState(null, '', window.location.pathname + window.location.search);
+  history.replaceState(null, '', window.location.pathname);
   return { accessToken, refreshToken, expiresAt: Date.now() + expiresIn * 1000 };
+}
+
+function extractRedirectError() {
+  const params = new URLSearchParams(window.location.search);
+  const error = params.get('error') || params.get('error_code');
+  const desc = params.get('error_description');
+  if (!error) return null;
+  history.replaceState(null, '', window.location.pathname);
+  return desc ? `${error}: ${desc}` : error;
+}
+
+async function exchangeCodeForTokens() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) return null;
+  const codeVerifier = localStorage.getItem(PKCE_VERIFIER_KEY);
+  if (!codeVerifier) {
+    console.warn('[auth] PKCE code found in URL but no code_verifier in storage — link may have opened in a different browser');
+    history.replaceState(null, '', window.location.pathname);
+    return null;
+  }
+  try { localStorage.removeItem(PKCE_VERIFIER_KEY); } catch { /* skip */ }
+  history.replaceState(null, '', window.location.pathname);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=pkce`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ auth_code: code, code_verifier: codeVerifier }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error('[auth] PKCE token exchange failed:', res.status, body);
+      return null;
+    }
+    const data = await res.json();
+    if (!data.access_token || !data.refresh_token) return null;
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (data.expires_in || 3600) * 1000,
+    };
+  } catch (err) {
+    console.error('[auth] PKCE token exchange error:', err);
+    return null;
+  }
 }
 
 async function fetchUser() {
@@ -2050,19 +2099,63 @@ async function ensureValidToken() {
   return true;
 }
 
+function generateCodeVerifier() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function generateCodeChallenge(verifier) {
+  const encoded = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest('SHA-256', encoded);
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function getRedirectUrl() {
+  const base = window.location.origin + window.location.pathname;
+  // Trailing slash must match the Supabase Redirect URL exactly
+  return base.endsWith('/') ? base : base + '/';
+}
+
 async function sendMagicLink(email) {
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+  const redirectTo = getRedirectUrl();
+  const body = { email, create_user: true };
+
+  // Use PKCE if crypto.subtle is available (requires secure context)
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const codeVerifier = generateCodeVerifier();
+      const codeChallenge = await generateCodeChallenge(codeVerifier);
+      body.code_challenge = codeChallenge;
+      body.code_challenge_method = 'S256';
+      try { localStorage.setItem(PKCE_VERIFIER_KEY, codeVerifier); } catch { /* skip */ }
+    } catch (err) {
+      console.warn('[auth] PKCE setup failed, falling back to implicit flow:', err);
+    }
+  } else {
+    console.warn('[auth] crypto.subtle unavailable (non-HTTPS?), using implicit flow');
+  }
+
+  // redirect_to must be a query param, not in the body — Supabase ignores it in the body
+  const otpUrl = `${SUPABASE_URL}/auth/v1/otp?redirect_to=${encodeURIComponent(redirectTo)}`;
+  const res = await fetch(otpUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'apikey': SUPABASE_ANON_KEY,
     },
-    body: JSON.stringify({ email, create_user: true, redirect_to: window.location.href.split('#')[0] }),
+    body: JSON.stringify(body),
   });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    console.error('[auth] OTP request failed:', res.status, errBody);
+    try { localStorage.removeItem(PKCE_VERIFIER_KEY); } catch { /* skip */ }
+  }
   return res.ok;
 }
 
-function renderLoginScreen() {
+function renderLoginScreen(errorMsg) {
   const app = document.querySelector('main.app');
   app.innerHTML = '';
 
@@ -2078,6 +2171,10 @@ function renderLoginScreen() {
   const sendBtn = el('button', { className: 'btn-primary', text: 'Send magic link' });
   const hint = el('p', { className: 'login-hint' });
 
+  if (errorMsg) {
+    hint.textContent = 'Sign-in link expired or was already used. Please request a new one.';
+  }
+
   emailInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendBtn.click(); });
 
   sendBtn.addEventListener('click', async () => {
@@ -2085,6 +2182,7 @@ function renderLoginScreen() {
     if (!email) { emailInput.focus(); return; }
     sendBtn.disabled = true;
     sendBtn.textContent = 'Sending...';
+    hint.textContent = '';
     try {
       const ok = await sendMagicLink(email);
       if (ok) {
@@ -2096,12 +2194,13 @@ function renderLoginScreen() {
       } else {
         sendBtn.disabled = false;
         sendBtn.textContent = 'Send magic link';
-        hint.textContent = 'Check your inbox — you may already have a link. (3 per hour limit)';
+        hint.textContent = 'Could not send link. Check the console for details.';
       }
-    } catch {
+    } catch (err) {
+      console.error('[auth] sendMagicLink error:', err);
       sendBtn.disabled = false;
       sendBtn.textContent = 'Send magic link';
-      hint.textContent = 'Check your inbox — you may already have a link. (3 per hour limit)';
+      hint.textContent = 'Could not send link. Check the console for details.';
     }
   });
 
@@ -2274,9 +2373,16 @@ function startApp() {
 // === Init ===
 async function init() {
   authSession = loadAuthSession();
+
+  // Check for Supabase auth errors in redirect URL
+  const authError = extractRedirectError();
+  if (authError) console.error('[auth] Redirect error from Supabase:', authError);
+
   const hashTokens = extractTokensFromHash();
-  if (hashTokens) {
-    authSession = { ...hashTokens };
+  const pkceTokens = !hashTokens ? await exchangeCodeForTokens() : null;
+  const tokens = hashTokens || pkceTokens;
+  if (tokens) {
+    authSession = { ...tokens };
     saveAuthSession(authSession);
     await fetchUser();
   } else if (authSession && !authSession.userId) {
@@ -2287,7 +2393,7 @@ async function init() {
 
   const isLocalOnly = localStorage.getItem(LOCAL_ONLY_KEY) === '1';
   if (!authSession && !isLocalOnly) {
-    renderLoginScreen();
+    renderLoginScreen(authError);
     return;
   }
 
