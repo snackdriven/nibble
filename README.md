@@ -14,7 +14,7 @@ The ADHD design is intentional. "Blocked" isn't a status you set manually — it
 
 Three time states: **due-by** (has a deadline, surfaces 10 days out with a countdown), **open** (no deadline, gets a stale badge after 14 days untouched), **recurring** (completes and immediately queues the next instance). Status goes `active → waiting → done`.
 
-Tasks support subtasks, dependencies, and labels. The only labels are `15min` and `browse` — execution hints, not categories. An optional activation date controls when a task first surfaces.
+Tasks support subtasks, dependencies, and labels. The only labels are `15min` and `browse` (execution hints, not categories). An optional activation date controls when a task first appears.
 
 ## Events
 
@@ -41,7 +41,7 @@ Date with optional time, location, and notes. Show up on the calendar alongside 
 
 ## Sync
 
-Sign in with a magic link to sync across devices. Data lives in `localStorage` — Supabase is the async remote copy. Peach dot = pending, green = synced. Works fully offline.
+Sign in with a magic link to sync across devices. Data lives in `localStorage`. Supabase is the async remote copy. Peach dot = pending, green = synced. Works fully offline.
 
 Sign-in is optional. "Use without sync" skips it entirely.
 
