@@ -4,6 +4,7 @@ import {
   getWeekStart,
   dayNum,
   computeNextDue,
+  isDueToday,
   isStale,
   isRecurringTask,
   isBlocked,
@@ -96,6 +97,36 @@ describe('computeNextDue', () => {
   });
 });
 
+// ── isDueToday ─────────────────────────────────────────────────────────────
+
+describe('isDueToday', () => {
+  const today = '2025-06-15';
+
+  it('true for active task due today', () => {
+    expect(isDueToday({ dueDate: '2025-06-15', status: 'active' }, today)).toBe(true);
+  });
+
+  it('true for waiting task due today', () => {
+    expect(isDueToday({ dueDate: '2025-06-15', status: 'waiting' }, today)).toBe(true);
+  });
+
+  it('false for done task due today', () => {
+    expect(isDueToday({ dueDate: '2025-06-15', status: 'done' }, today)).toBe(false);
+  });
+
+  it('false when due date is yesterday', () => {
+    expect(isDueToday({ dueDate: '2025-06-14', status: 'active' }, today)).toBe(false);
+  });
+
+  it('false when due date is tomorrow', () => {
+    expect(isDueToday({ dueDate: '2025-06-16', status: 'active' }, today)).toBe(false);
+  });
+
+  it('false when task has no due date', () => {
+    expect(isDueToday({ dueDate: null, status: 'active' }, today)).toBe(false);
+  });
+});
+
 // ── isRecurringTask ────────────────────────────────────────────────────────
 
 describe('isRecurringTask', () => {
@@ -165,6 +196,13 @@ describe('isBlocked', () => {
     const task = { dependsOn: ['ghost-id'] };
     expect(isBlocked(task, [])).toBe(false);
   });
+
+  it('true when one of multiple dependencies is still active', () => {
+    const dep1 = { id: 'dep-1', status: 'done' };
+    const dep2 = { id: 'dep-2', status: 'active' };
+    const task = { dependsOn: ['dep-1', 'dep-2'] };
+    expect(isBlocked(task, [dep1, dep2])).toBe(true);
+  });
 });
 
 // ── canComplete ────────────────────────────────────────────────────────────
@@ -225,6 +263,12 @@ describe('transitionStatus', () => {
   it('rejects an invalid status string', () => {
     const task = { dependsOn: [], subtasks: [], status: 'active' };
     expect(transitionStatus(task, 'archived')).toBe(false);
+    expect(task.status).toBe('active');
+  });
+
+  it('allows done → active (reopen path used by reopenItem)', () => {
+    const task = { dependsOn: [], subtasks: [], status: 'done', updatedAt: 0 };
+    expect(transitionStatus(task, 'active')).toBe(true);
     expect(task.status).toBe('active');
   });
 

@@ -136,6 +136,15 @@ describe('validateItem — tasks', () => {
     expect(result.activationDate).toBe(addDays('2099-12-31', -ACTIVE_WINDOW_DAYS));
   });
 
+  it('clamps activationDate to today when dueDate − 10d is already past', () => {
+    // Task due in 3 days → raw activation would be 7 days ago → must clamp to today
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const dueDate = addDays(todayStr, 3);
+    const result = validateItem({ ...goodTask, timeState: 'due-by', dueDate, activationDate: null });
+    expect(result.activationDate).toBe(todayStr);
+  });
+
   it('clamps activationDate to dueDate when activation > due', () => {
     const result = validateItem({
       ...goodTask,

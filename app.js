@@ -1022,19 +1022,6 @@ function render() {
     }
   }
 
-  // Only re-render the create form when the form type changes, not on every render().
-  // This preserves user input (title, dates, selects) during renders triggered by
-  // other actions like timeState select changes or unrelated state updates.
-  const formContainer = document.getElementById('create-form-container');
-  const currentFormType = formContainer.dataset.formType || null;
-  if (createFormType && createFormType !== currentFormType) {
-    formContainer.dataset.formType = createFormType;
-    renderCreateForm();
-  } else if (!createFormType) {
-    formContainer.innerHTML = '';
-    delete formContainer.dataset.formType;
-  }
-
   // Item count in header
   const taskCount = document.getElementById('task-count');
   const activeCount = items.filter(i => i.type === 'task' && i.status !== 'done').length;
@@ -1045,9 +1032,16 @@ function render() {
   if (headerActions) {
     headerActions.innerHTML = '';
     if (authSession) {
-      const signOutBtn = el('button', { className: 'sign-out-btn', text: 'Sign out' });
+      const signOutBtn = el('button', { className: 'header-btn', text: 'Sign out' });
       signOutBtn.addEventListener('click', () => clearAuthSession());
       headerActions.appendChild(signOutBtn);
+    } else {
+      const signInBtn = el('button', { className: 'header-btn', text: 'Sign in' });
+      signInBtn.addEventListener('click', () => {
+        localStorage.removeItem(LOCAL_ONLY_KEY);
+        renderLoginScreen();
+      });
+      headerActions.appendChild(signInBtn);
     }
   }
 
@@ -1123,31 +1117,29 @@ function renderCreateToggle() {
   const container = document.getElementById('create-toggle');
   container.innerHTML = '';
 
-  const eventBtn = el('button', { className: `create-btn${createFormType === 'event' ? ' active' : ''}`, text: 'New Event' });
-  eventBtn.addEventListener('click', () => {
-    createFormType = createFormType === 'event' ? null : 'event';
-    render();
-  });
+  const eventBtn = el('button', { className: 'create-btn', text: 'New Event' });
+  eventBtn.addEventListener('click', () => openCreateDialog('event'));
 
-  const taskBtn = el('button', { className: `create-btn${createFormType === 'task' ? ' active' : ''}`, text: 'New Task' });
-  taskBtn.addEventListener('click', () => {
-    createFormType = createFormType === 'task' ? null : 'task';
-    render();
-  });
+  const taskBtn = el('button', { className: 'create-btn', text: 'New Task' });
+  taskBtn.addEventListener('click', () => openCreateDialog('task'));
 
-  container.appendChild(eventBtn);
-  container.appendChild(taskBtn);
+  container.append(eventBtn, taskBtn);
 }
 
-function renderCreateForm() {
-  const existing = document.getElementById('create-form-container');
-  existing.innerHTML = '';
+function openCreateDialog(type) {
+  createFormType = type;
+  const dialog = document.getElementById('create-dialog');
+  const body = document.getElementById('create-dialog-body');
+  body.innerHTML = '';
+  body.appendChild(type === 'event' ? buildEventForm() : buildTaskForm());
+  document.querySelector('main.app').inert = true;
+  dialog.showModal();
+}
 
-  if (createFormType === 'event') {
-    existing.appendChild(buildEventForm());
-  } else if (createFormType === 'task') {
-    existing.appendChild(buildTaskForm());
-  }
+function closeCreateDialog() {
+  createFormType = null;
+  document.getElementById('create-dialog').close();
+  document.querySelector('main.app').inert = false;
 }
 
 function buildEventForm() {
@@ -1192,7 +1184,7 @@ function buildEventForm() {
 
   const actions = el('div', { className: 'form-actions' });
   const cancelBtn = el('button', { className: 'btn-cancel', text: 'Cancel' });
-  cancelBtn.addEventListener('click', () => { createFormType = null; render(); });
+  cancelBtn.addEventListener('click', () => closeCreateDialog());
   const submitBtn = el('button', { className: 'btn-primary', text: 'Create Event' });
   submitBtn.addEventListener('click', () => {
     const title = titleInput.value.trim();
@@ -1200,8 +1192,7 @@ function buildEventForm() {
     const dateTime = dateTimeInput.value;
     if (!dateTime) { dateTimeInput.focus(); return; }
     createEvent({ title, dateTime, allDay: allDayCheck.checked, location: locationInput.value, notes: notesInput.value });
-    createFormType = null;
-    render();
+    closeCreateDialog();
   });
 
   actions.appendChild(cancelBtn);
@@ -1304,7 +1295,7 @@ function buildTaskForm() {
 
   const actions = el('div', { className: 'form-actions' });
   const cancelBtn = el('button', { className: 'btn-cancel', text: 'Cancel' });
-  cancelBtn.addEventListener('click', () => { createFormType = null; render(); });
+  cancelBtn.addEventListener('click', () => closeCreateDialog());
   const submitBtn = el('button', { className: 'btn-primary', text: 'Create Task' });
   submitBtn.addEventListener('click', () => {
     const title = titleInput.value.trim();
@@ -1323,8 +1314,7 @@ function buildTaskForm() {
       labels: [...selectedLabels],
       subtasks,
     });
-    createFormType = null;
-    render();
+    closeCreateDialog();
   });
 
   actions.appendChild(cancelBtn);
@@ -1395,8 +1385,6 @@ function renderAllSortToggle() {
 
 // === Active Window Toggle ===
 function renderActiveWindowToggle() {
-  const wrapper = el('div', { className: 'window-toggle-row' });
-  wrapper.appendChild(el('span', { className: 'window-toggle-label', text: 'Due within:' }));
   const toggle = el('div', { className: 'calendar-mode-toggle' });
   const options = [
     { label: '10 days', value: 10 },
@@ -1411,8 +1399,7 @@ function renderActiveWindowToggle() {
     btn.addEventListener('click', () => { activeViewWindow = value; render(); });
     toggle.appendChild(btn);
   });
-  wrapper.appendChild(toggle);
-  return wrapper;
+  return toggle;
 }
 
 // === Calendar Mode Toggle & Agenda ===
@@ -1469,11 +1456,19 @@ function renderWeekStrip() {
   const strip = el('div', { className: 'week-strip' });
   const today = todayStr();
 
+  // Header: [‹ Month Year ›]  [Today]
   const prevBtn = el('button', { className: 'week-nav', text: '\u2039', ariaLabel: 'Previous week' });
   prevBtn.addEventListener('click', () => { weekStart = addDays(weekStart, -7); render(); });
 
   const nextBtn = el('button', { className: 'week-nav', text: '\u203a', ariaLabel: 'Next week' });
   nextBtn.addEventListener('click', () => { weekStart = addDays(weekStart, 7); render(); });
+
+  const [wy, wm] = weekStart.split('-').map(Number);
+  const labelText = new Date(wy, wm - 1, 1).toLocaleDateString('en', { month: 'long', year: 'numeric' });
+  const label = el('span', { className: 'week-strip-label', text: labelText });
+
+  const navCluster = el('div', { className: 'week-nav-cluster' });
+  navCluster.append(prevBtn, label, nextBtn);
 
   const todayBtn = el('button', { className: 'week-today-btn', text: 'Today' });
   todayBtn.addEventListener('click', () => {
@@ -1482,6 +1477,11 @@ function renderWeekStrip() {
     render();
   });
 
+  const header = el('div', { className: 'week-strip-header' });
+  header.append(navCluster, todayBtn);
+  strip.appendChild(header);
+
+  // Day cells — full width grid, single-letter day names
   const days = el('div', { className: 'week-days' });
   for (let i = 0; i < 7; i++) {
     const d = addDays(weekStart, i);
@@ -1493,7 +1493,7 @@ function renderWeekStrip() {
       className: `week-day${isToday ? ' today' : ''}${isSelected ? ' selected' : ''}`,
       ariaLabel: `${dayName(d)} ${dayNum(d)}${isToday ? ' (today)' : ''}`,
     }, [
-      el('span', { className: 'week-day-name', text: dayName(d) }),
+      el('span', { className: 'week-day-name', text: dayName(d).charAt(0) }),
       el('span', { className: 'week-day-num', text: String(dayNum(d)) }),
       hasItems ? el('span', { className: 'week-day-dot' }) : document.createTextNode(''),
     ]);
@@ -1501,8 +1501,8 @@ function renderWeekStrip() {
     dayCell.addEventListener('click', () => { selectedDate = d; render(); });
     days.appendChild(dayCell);
   }
+  strip.appendChild(days);
 
-  strip.append(prevBtn, days, nextBtn, todayBtn);
   return strip;
 }
 
@@ -1554,9 +1554,16 @@ function renderItemCard(item, opts = {}) {
 function renderEventCard(event, opts = {}) {
   const card = el('li', { className: 'item-card event-card', dataset: { id: event.id, type: 'event' } });
 
-  const content = el('div', { className: 'item-content' }, [
-    el('span', { className: 'item-title', text: event.title }),
-  ]);
+  const titleRow = el('div', { className: 'item-title-row' });
+  titleRow.appendChild(el('span', { className: 'item-title', text: event.title }));
+
+  const eventCountdown = formatEventCountdown(event.dateTime, event.allDay);
+  if (eventCountdown) {
+    titleRow.appendChild(el('span', { className: `countdown ${eventCountdown.cls}`, text: eventCountdown.text }));
+  }
+
+  const content = el('div', { className: 'item-content' });
+  content.appendChild(titleRow);
 
   const meta = el('div', { className: 'item-meta' });
   if (event.dateTime) {
@@ -1569,10 +1576,6 @@ function renderEventCard(event, opts = {}) {
     } else {
       meta.appendChild(el('span', { className: 'event-time', text: formatDateTime(event.dateTime, event.allDay) }));
     }
-  }
-  const eventCountdown = formatEventCountdown(event.dateTime, event.allDay);
-  if (eventCountdown) {
-    meta.appendChild(el('span', { className: `countdown ${eventCountdown.cls}`, text: eventCountdown.text }));
   }
   if (event.location) {
     meta.appendChild(el('span', { className: 'event-location', text: event.location }));
@@ -1603,7 +1606,8 @@ function renderEventCard(event, opts = {}) {
 
 function renderTaskCard(task, opts = {}) {
   const isOverdueTask = task.dueDate && task.status !== 'done' && task.dueDate < todayStr();
-  const card = el('li', { className: `item-card task-card${task.status === 'done' ? ' completed' : ''}${isOverdueTask ? ' overdue' : ''}${task.status === 'waiting' ? ' waiting' : ''}`, dataset: { id: task.id, type: 'task' } });
+  const isDueTodayTask = task.dueDate && task.status !== 'done' && task.dueDate === todayStr();
+  const card = el('li', { className: `item-card task-card${task.status === 'done' ? ' completed' : ''}${isOverdueTask ? ' overdue' : ''}${isDueTodayTask ? ' due-today' : ''}${task.status === 'waiting' ? ' waiting' : ''}`, dataset: { id: task.id, type: 'task' } });
 
   const blocked = isBlocked(task);
   const completable = canComplete(task);
@@ -1624,19 +1628,21 @@ function renderTaskCard(task, opts = {}) {
     card.appendChild(checkLabel);
   }
 
-  const content = el('div', { className: 'item-content' }, [
-    el('span', { className: 'item-title', text: task.title }),
-  ]);
-
-  // Meta: countdown first (urgency), labels, subtasks, actionability badges, stale
-  const meta = el('div', { className: 'item-meta' });
+  const titleRow = el('div', { className: 'item-title-row' });
+  titleRow.appendChild(el('span', { className: 'item-title', text: task.title }));
 
   if (task.dueDate && task.status !== 'done') {
     const countdown = formatCountdown(task.dueDate);
     if (countdown) {
-      meta.appendChild(el('span', { className: `countdown ${countdown.cls}`, text: countdown.text }));
+      titleRow.appendChild(el('span', { className: `countdown ${countdown.cls}`, text: countdown.text }));
     }
   }
+
+  const content = el('div', { className: 'item-content' });
+  content.appendChild(titleRow);
+
+  // Meta: labels, subtasks, actionability badges, stale
+  const meta = el('div', { className: 'item-meta' });
 
   (task.labels || []).forEach(l => {
     meta.appendChild(el('span', { className: 'label-chip label-badge', text: l, ariaLabel: `Label: ${l}` }));
@@ -2332,10 +2338,13 @@ async function pushToServer() {
     } else {
       syncStatus = 'error';
       renderSyncIndicator();
+      syncTimer = setTimeout(() => pushToServer(), 30000);
     }
   } catch {
     syncStatus = 'pending';
     renderSyncIndicator();
+    // Retry after 30s so network blips don't silently drop the push
+    syncTimer = setTimeout(() => pushToServer(), 30000);
   }
 }
 
@@ -2370,7 +2379,6 @@ function startApp() {
       </header>
       <nav class="view-nav" id="view-nav" role="tablist" aria-label="Views"></nav>
       <div class="create-toggle" id="create-toggle"></div>
-      <div id="create-form-container"></div>
       <div id="content" role="tabpanel"></div>
     `;
   }
@@ -2382,6 +2390,12 @@ function startApp() {
   const { items: loadedItems, toast } = loadItems();
   items = loadedItems;
   cleanOrphanDependencies();
+
+  // Wire up create dialog
+  document.getElementById('create-dialog').addEventListener('cancel', () => {
+    createFormType = null;
+    document.querySelector('main.app').inert = false;
+  });
 
   // Wire up delete dialog
   document.getElementById('delete-dialog-confirm').addEventListener('click', confirmDelete);
